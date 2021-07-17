@@ -1,0 +1,6 @@
+*.md
+.github
+*.php
+composer.*
+vendor/
+.idea/
