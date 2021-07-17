@@ -1,0 +1,10 @@
+{
+    "name": "bref/live",
+    "description": "Give it a nice description!",
+    "license": "MIT",
+    "type": "library",
+    "require": {
+        "php": ">=7.4",
+        "async-aws/s3": "^1.4"
+    }
+}
