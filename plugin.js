@@ -2,6 +2,7 @@ const fs = require('fs');
 const child_process = require('child_process');
 const archiver = require('archiver');
 const os = require('os');
+const chokidar = require('chokidar');
 
 class ServerlessPlugin {
     constructor(serverless, options) {
@@ -32,15 +33,15 @@ class ServerlessPlugin {
 
     async start() {
         this.sync();
-        fs.watch('.', {
-            recursive: true,
-        }, async (eventType, filename) => {
-            if (filename.startsWith('.git/') || filename.startsWith('.serverless/') || filename.endsWith('~')) {
+        chokidar.watch('.', {
+            ignoreInitial: true,
+        }).on('all', async (event, path) => {
+            if (path.startsWith('.git/') || path.startsWith('.serverless/') || path.startsWith('node_modules/') || path.startsWith('vendor/')) {
                 return;
             }
-            console.log(`${filename} (${eventType})`);
+            console.log(`${path} (${event})`);
             await this.sync();
-        })
+        });
     }
 
     async sync() {
