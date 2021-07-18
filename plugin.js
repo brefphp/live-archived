@@ -16,15 +16,18 @@ class ServerlessPlugin {
         this.serverless = serverless;
         this.commands = {
             'bref-live': {
-                usage: 'Start Bref live',
-                lifecycleEvents: [
-                    'start',
-                ],
+                usage: 'Start Bref Live',
+                lifecycleEvents: ['start'],
+            },
+            'bref-live-install': {
+                usage: 'Install Bref Live',
+                lifecycleEvents: ['install'],
             },
         };
         this.hooks = {
             initialize: () => this.init(),
             'bref-live:start': () => this.start(),
+            'bref-live-install:install': () => this.install(),
         };
     }
 
@@ -35,8 +38,15 @@ class ServerlessPlugin {
         this.bucketName = `bref-live-${accountId}`;
 
         this.serverless.service.provider.environment = this.serverless.service.provider.environment ?? {};
+        // TODO make those configurable in `bref.live` in serverless.yml
         this.serverless.service.provider.environment.BREF_LIVE_BUCKET = this.bucketName;
         this.serverless.service.provider.environment.BREF_LIVE_BUCKET_REGION = 'eu-west-3';
+    }
+
+    async install() {
+        // TODO create the bucket, maybe with a separate CloudFormation stack?
+        console.log(`WIP - Create a bucket '${this.bucketName}' and make it accessible by Lambda.`);
+        console.log('Create it in an AWS region close to your location for faster uploads.');
     }
 
     async start() {

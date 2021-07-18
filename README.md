@@ -20,6 +20,12 @@ serverless plugin install -n @bref.sh/live
 
 > The command above is a shortcut. You can also install the plugin manually: install via NPM: `npm install --save-dev @bref.sh/live` and load the `'@bref.sh/live'` plugin in `serverless.yml`.
 
+Set up Bref Live's S3 bucket by running:
+
+```
+serverless bref-live-install
+```
+
 Run Bref Live at the top of your main file (`index.php` or similar):
 
 ```php
@@ -33,4 +39,12 @@ require __DIR__.'/../vendor/autoload.php';
 
 ## Usage
 
-TODO
+Run Bref Live:
+
+```
+serverless bref-live
+```
+
+Only file changes tracked by git will be synchronized to Lambda.
+
+Anything "git ignored" will not be uploaded to Lambda (for example `vendor/` changes, caches, etc.).
