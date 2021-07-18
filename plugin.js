@@ -6,6 +6,7 @@ const anymatch = require('anymatch');
 
 const ignoredPaths = [
     '.git/*',
+    '.serverless',
     '.serverless/*',
     'serverless.yml',
 ];

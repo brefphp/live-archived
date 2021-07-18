@@ -35,7 +35,7 @@ if (! function_exists('Bref\live')) {
         require $newRoot . '/vendor/autoload.php';
 
         $startSync = microtime(true);
-        applyChanges($newRoot, $stderr);
+        applyChanges($baseRoot, $newRoot, $stderr);
         $syncDuration = (int) ((microtime(true) - $startSync) * 1000);
         fwrite($stderr, "Bref Live Edit: Synchronized live code in $syncDuration ms\n");
 
@@ -50,6 +50,11 @@ if (! function_exists('Bref\live')) {
 
     function recursiveCopy($source, $target)
     {
+        // Missing file
+        if (! file_exists($source)) {
+            unlink($target);
+            return;
+        }
         // Check for symlinks
         if (is_link($source)) {
             symlink(readlink($source), $target);
@@ -78,7 +83,7 @@ if (! function_exists('Bref\live')) {
         $dir->close();
     }
 
-    function applyChanges(string $newRoot, $stderr)
+    function applyChanges(string $baseRoot, string $newRoot, $stderr)
     {
         $region = getenv('AWS_REGION');
         $functionName = getenv('AWS_LAMBDA_FUNCTION_NAME');
@@ -114,7 +119,29 @@ if (! function_exists('Bref\live')) {
 
         $zip = new ZipArchive();
         $zip->open('/tmp/.bref-live.zip');
+
+        // Restore previously modified paths
+        if (file_exists('/tmp/.bref-live-modified.json')) {
+            $previouslyModifiedPaths = file('/tmp/.bref-live-modified.json');
+            foreach ($previouslyModifiedPaths as $path) {
+                $path = trim($path);
+                // If the previously changed files are no longer in the zip, we need to restore the original version
+                if ($zip->locateName($path) === false) {
+                    recursiveCopy($baseRoot . '/' . $path, $newRoot . '/' . $path);
+                }
+            }
+        }
+
+        // Extract new files from zip
         $zip->extractTo($newRoot);
+
+        // Store modified paths
+        $modifiedPaths = [];
+        for ($i = 0; $i < $zip->numFiles; $i++){
+            $modifiedPaths[] = $zip->getNameIndex($i);
+        }
+        file_put_contents('/tmp/.bref-live-modified.json', implode(PHP_EOL, $modifiedPaths));
+
         $zip->close();
     }
 
