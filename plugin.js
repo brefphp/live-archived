@@ -1,11 +1,17 @@
-const fs = require('fs');
 const child_process = require('child_process');
 const archiver = require('archiver');
 const os = require('os');
 const chokidar = require('chokidar');
+const anymatch = require('anymatch');
+
+const ignoredPaths = [
+    '.git/*',
+    '.serverless/*',
+    'serverless.yml',
+];
 
 class ServerlessPlugin {
-    constructor(serverless, options) {
+    constructor(serverless) {
         this.serverless = serverless;
         this.commands = {
             'bref-live': {
@@ -22,8 +28,9 @@ class ServerlessPlugin {
     }
 
     async init() {
-        this.region = this.serverless.getProvider('aws').getRegion();
-        const accountId = await this.serverless.getProvider('aws').getAccountId();
+        this.awsProvider = this.serverless.getProvider('aws');
+        this.region = this.awsProvider.getRegion();
+        const accountId = await this.awsProvider.getAccountId();
         this.bucketName = `bref-live-${accountId}`;
 
         this.serverless.service.provider.environment = this.serverless.service.provider.environment ?? {};
@@ -35,10 +42,9 @@ class ServerlessPlugin {
         this.sync();
         chokidar.watch('.', {
             ignoreInitial: true,
+            ignored: ignoredPaths,
         }).on('all', async (event, path) => {
-            if (path.startsWith('.git/') || path.startsWith('.serverless/') || path.startsWith('node_modules/') || path.startsWith('vendor/')) {
-                return;
-            }
+            if (this.isGitIgnored(path)) return;
             console.log(`${path} (${event})`);
             await this.sync();
         });
@@ -52,22 +58,18 @@ class ServerlessPlugin {
     }
 
     async uploadDiff(functionName) {
-        if (!fs.existsSync('.serverless')) {
-            fs.mkdirSync('.serverless');
-        }
-        const process = child_process.spawnSync('git', ['diff', 'HEAD', '--name-only']);
+        const changedFilesOutput = this.spawnSync('git', ['diff', 'HEAD', '--name-only']);
+        let changedFiles = changedFilesOutput.split(os.EOL);
+        changedFiles = changedFiles.filter((file) => file !== '' && !anymatch(ignoredPaths, file));
 
         const archive = archiver('zip', {});
-        for (const file of process.stdout.toString().split(os.EOL)) {
-            if (file === '') {
-                continue;
-            }
+        for (const file of changedFiles) {
             console.log(`+ ${file}`);
             archive.file(file, {name: file});
         }
         await archive.finalize();
 
-        await this.serverless.getProvider('aws').request("S3", "upload", {
+        await this.awsProvider.request("S3", "upload", {
             Bucket: this.bucketName,
             Key: `${this.region}/${functionName}.zip`,
             Body: archive,
@@ -77,6 +79,15 @@ class ServerlessPlugin {
     elapsedTime(startTime){
         const hrtime = process.hrtime(startTime);
         return (hrtime[0] + (hrtime[1] / 1e9)).toFixed(3);
+    }
+
+    isGitIgnored(path) {
+        return child_process.spawnSync('git', ['check-ignore', path]).status === 0;
+    }
+
+    spawnSync(cmd, args) {
+        const p = child_process.spawnSync(cmd, args);
+        return p.stdout.toString().trim();
     }
 }
 
