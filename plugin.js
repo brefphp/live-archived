@@ -3,6 +3,8 @@ const archiver = require('archiver');
 const os = require('os');
 const chokidar = require('chokidar');
 const anymatch = require('anymatch');
+const ora = require('ora');
+const chalk = require('chalk');
 
 const ignoredPaths = [
     '.git/*',
@@ -50,22 +52,30 @@ class ServerlessPlugin {
     }
 
     async start() {
-        this.sync();
+        console.log(chalk.gray(`Bref Live will upload changes tracked by git: ${chalk.underline('git diff HEAD --name-only')}`));
+        this.spinner = ora('Watching changes').start();
+
+        this.sync('Initial sync');
         chokidar.watch('.', {
             ignoreInitial: true,
             ignored: ignoredPaths,
         }).on('all', async (event, path) => {
             if (this.isGitIgnored(path)) return;
-            console.log(`${path} (${event})`);
-            await this.sync();
+            await this.sync(path);
         });
     }
 
-    async sync() {
+    async sync(path) {
+        this.spinner.text = 'Uploading';
+
         const startTime = process.hrtime();
+        const startTimeHuman = new Date().toLocaleTimeString();
         const functionNames = this.serverless.service.getAllFunctionsNames();
         await Promise.all(functionNames.map((functionName) => this.uploadDiff(functionName)));
-        console.log(new Date().toLocaleTimeString() + ' - Patch uploaded - ' + this.elapsedTime(startTime) + ' s');
+        this.spinner.succeed(`${chalk.gray(startTimeHuman)} - ${this.elapsedTime(startTime)}s - ${path}`);
+
+        // New spinner
+        this.spinner = ora('Watching project').start();
     }
 
     async uploadDiff(functionName) {
@@ -75,7 +85,6 @@ class ServerlessPlugin {
 
         const archive = archiver('zip', {});
         for (const file of changedFiles) {
-            console.log(`+ ${file}`);
             archive.file(file, {name: file});
         }
         await archive.finalize();
