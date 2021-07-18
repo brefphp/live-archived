@@ -1,7 +1,8 @@
 {
     "name": "@bref.sh/live",
     "description": "Edit code live on Lambda",
-    "version": "0.1.0",
+    "homepage": "https://github.com/brefphp/live",
+    "repository": "https://github.com/brefphp/live",
     "license": "MIT",
     "dependencies": {
         "anymatch": "^3.1.2",
