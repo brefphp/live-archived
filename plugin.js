@@ -1,35 +1,26 @@
 const child_process = require('child_process');
 const archiver = require('archiver');
-const os = require('os');
 const chokidar = require('chokidar');
-const anymatch = require('anymatch');
-const ora = require('ora');
 const chalk = require('chalk');
 
-const ignoredPaths = [
-    '.git/*',
-    '.serverless',
-    '.serverless/*',
-    'serverless.yml',
-];
-
-class ServerlessPlugin {
-    constructor(serverless) {
+class BrefLive {
+    constructor(serverless, options, utils) {
         this.serverless = serverless;
+        this.utils = utils;
         this.commands = {
-            'bref-live': {
+            'bref:live': {
                 usage: 'Start Bref Live',
                 lifecycleEvents: ['start'],
             },
-            'bref-live-install': {
+            'bref:live:install': {
                 usage: 'Install Bref Live',
                 lifecycleEvents: ['install'],
             },
         };
         this.hooks = {
             initialize: () => this.init(),
-            'bref-live:start': () => this.start(),
-            'bref-live-install:install': () => this.install(),
+            'bref:live:start': () => this.start(),
+            'bref:live:install:install': () => this.install(),
         };
     }
 
@@ -43,48 +34,81 @@ class ServerlessPlugin {
         // TODO make those configurable in `bref.live` in serverless.yml
         this.serverless.service.provider.environment.BREF_LIVE_BUCKET = this.bucketName;
         this.serverless.service.provider.environment.BREF_LIVE_BUCKET_REGION = 'eu-west-3';
+        if (process.env.BREF_LIVE_ENABLE) {
+            this.serverless.service.provider.environment.BREF_LIVE_ENABLE = process.env.BREF_LIVE_ENABLE;
+        }
+
+        // TODO support include/exclude
+        this.packagePatterns = this.serverless.service.package.patterns ?? [];
     }
 
     async install() {
         // TODO create the bucket, maybe with a separate CloudFormation stack?
         console.log(`WIP - Create a bucket '${this.bucketName}' and make it accessible by Lambda.`);
         console.log('Create it in an AWS region close to your location for faster uploads.');
+        console.log('In the future the CLI should create the bucket for you, sorry for the trouble :)');
     }
 
     async start() {
-        console.log(chalk.gray(`Bref Live will upload changes tracked by git: ${chalk.underline('git diff HEAD --name-only')}`));
-        this.spinner = ora('Watching changes').start();
+        this.changedFiles = [];
 
-        this.sync('Initial sync');
-        chokidar.watch('.', {
+        this.spinner = this.utils.progress.create();
+
+        // TODO implement a pattern matching that == the one used by Framework
+        const pathsToWatch = this.packagePatterns.filter((pattern) => !pattern.startsWith('!'));
+        if (pathsToWatch.length === 0) {
+            pathsToWatch.push('*');
+        }
+        const pathsToIgnore = this.packagePatterns.filter((pattern) => pattern.startsWith('!'))
+            .map((pattern) => pattern.replace('!', ''));
+
+        await this.initialSync();
+
+        this.spinner.update('Watching changes');
+        chokidar.watch(pathsToWatch, {
             ignoreInitial: true,
-            ignored: ignoredPaths,
+            ignored: pathsToIgnore,
         }).on('all', async (event, path) => {
-            if (this.isGitIgnored(path)) return;
             await this.sync(path);
         });
+
+        // TODO catch interrupt to cancel BREF_LIVE_ENABLE
+        return new Promise(resolve => {});
+    }
+
+    async initialSync() {
+        this.spinner.update('Deploying all functions');
+
+        this.serverless.service.provider.environment.BREF_LIVE_ENABLE = '1';
+        const functionNames = this.serverless.service.getAllFunctions();
+        await Promise.all(functionNames.map((functionName) => {
+            return this.spawnAsync('serverless', [
+                'deploy', 'function', '--function', functionName
+            ], {
+                BREF_LIVE_ENABLE: '1',
+            });
+        }));
     }
 
     async sync(path) {
-        this.spinner.text = 'Uploading';
+        this.changedFiles.push(path);
+
+        this.spinner.update('Uploading');
 
         const startTime = process.hrtime();
         const startTimeHuman = new Date().toLocaleTimeString();
         const functionNames = this.serverless.service.getAllFunctionsNames();
         await Promise.all(functionNames.map((functionName) => this.uploadDiff(functionName)));
-        this.spinner.succeed(`${chalk.gray(startTimeHuman)} - ${this.elapsedTime(startTime)}s - ${path}`);
 
-        // New spinner
-        this.spinner = ora('Watching project').start();
+        const elapsedTime = `${this.elapsedTime(startTime)}s`;
+        this.utils.log.success(`${chalk.gray(startTimeHuman)} ${path} ${chalk.gray(elapsedTime)}`);
+
+        this.spinner.update('Watching changes');
     }
 
     async uploadDiff(functionName) {
-        const changedFilesOutput = this.spawnSync('git', ['diff', 'HEAD', '--name-only']);
-        let changedFiles = changedFilesOutput.split(os.EOL);
-        changedFiles = changedFiles.filter((file) => file !== '' && !anymatch(ignoredPaths, file));
-
         const archive = archiver('zip', {});
-        for (const file of changedFiles) {
+        for (const file of this.changedFiles) {
             archive.file(file, {name: file});
         }
         await archive.finalize();
@@ -98,17 +122,31 @@ class ServerlessPlugin {
 
     elapsedTime(startTime){
         const hrtime = process.hrtime(startTime);
-        return (hrtime[0] + (hrtime[1] / 1e9)).toFixed(3);
+        return (hrtime[0] + (hrtime[1] / 1e9)).toFixed(1);
     }
 
-    isGitIgnored(path) {
-        return child_process.spawnSync('git', ['check-ignore', path]).status === 0;
-    }
-
-    spawnSync(cmd, args) {
-        const p = child_process.spawnSync(cmd, args);
-        return p.stdout.toString().trim();
+    async spawnAsync(command, args, env) {
+        const child = child_process.spawn(command, args, {
+            env: {
+                ...process.env,
+                ...env,
+            },
+        });
+        let output = "";
+        for await (const chunk of child.stdout) {
+            output += chunk;
+        }
+        for await (const chunk of child.stderr) {
+            output += chunk;
+        }
+        const exitCode = await new Promise( (resolve, reject) => {
+            child.on('close', resolve);
+        });
+        if( exitCode) {
+            throw new Error(`${output}`);
+        }
+        return output;
     }
 }
 
-module.exports = ServerlessPlugin;
+module.exports = BrefLive;
