@@ -12,6 +12,8 @@ if (! function_exists('Bref\live')) {
 
     function live(string $entryPoint)
     {
+        if (!getenv('BREF_LIVE_ENABLE')) return;
+
         $baseRoot = getenv('LAMBDA_TASK_ROOT');
         $newRoot = '/tmp/.bref-live';
 
