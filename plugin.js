@@ -6,6 +6,7 @@ const chalk = require('chalk');
 class BrefLive {
     constructor(serverless, options, utils) {
         this.serverless = serverless;
+        this.options = options;
         this.utils = utils;
         this.commands = {
             'bref:live': {
@@ -82,9 +83,12 @@ class BrefLive {
         this.serverless.service.provider.environment.BREF_LIVE_ENABLE = '1';
         const functionNames = this.serverless.service.getAllFunctions();
         await Promise.all(functionNames.map((functionName) => {
-            return this.spawnAsync('serverless', [
-                'deploy', 'function', '--function', functionName
-            ], {
+            const args = ['deploy', 'function', '--function', functionName];
+            if (this.options.stage) args.push('--stage', this.options.stage);
+            if (this.options.region) args.push('--region', this.options.region);
+            if (this.options.awsProfile) args.push('--aws-profile', this.options.awsProfile);
+            if (this.options.config) args.push('--config', this.options.config);
+            return this.spawnAsync('serverless', args, {
                 BREF_LIVE_ENABLE: '1',
             });
         }));
